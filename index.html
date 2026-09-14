@@ -1,0 +1,507 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Report Narrator — turn a spreadsheet into a summary</title>
+<style>
+  :root {
+    --ink: #1C2333;
+    --ink-soft: #4A5268;
+    --ink-faint: #8991A3;
+    --bg: #F6F6F3;
+    --panel: #FFFFFF;
+    --line: #E2E1DA;
+    --accent: #2E6E5E;
+    --accent-soft: #E4EFEC;
+    --flag: #B4602A;
+    --flag-soft: #F7E9DD;
+    --mono: 'IBM Plex Mono', 'SFMono-Regular', Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+    line-height: 1.5;
+  }
+  .wrap {
+    max-width: 720px;
+    margin: 0 auto;
+    padding: 48px 24px 96px;
+  }
+  header {
+    margin-bottom: 40px;
+  }
+  .kicker {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--accent);
+    letter-spacing: 0.02em;
+    margin: 0 0 10px;
+  }
+  h1 {
+    font-size: 28px;
+    font-weight: 600;
+    margin: 0 0 10px;
+    letter-spacing: -0.01em;
+  }
+  .sub {
+    color: var(--ink-soft);
+    font-size: 15px;
+    max-width: 480px;
+    margin: 0;
+  }
+
+  .dropzone {
+    background: var(--panel);
+    border: 1.5px dashed var(--line);
+    border-radius: 10px;
+    padding: 36px 24px;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color 0.15s ease, background 0.15s ease;
+  }
+  .dropzone:hover, .dropzone.drag {
+    border-color: var(--accent);
+    background: var(--accent-soft);
+  }
+  .dropzone p { margin: 0; }
+  .dz-title { font-size: 15px; font-weight: 600; margin-bottom: 4px !important; }
+  .dz-sub { font-size: 13px; color: var(--ink-faint); }
+  input[type="file"] { display: none; }
+
+  .filebar {
+    display: none;
+    align-items: center;
+    justify-content: space-between;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 14px 18px;
+    margin-top: 14px;
+    font-size: 14px;
+  }
+  .filebar.show { display: flex; }
+  .filebar .name { font-family: var(--mono); font-size: 13px; }
+  .filebar button {
+    background: none;
+    border: none;
+    color: var(--ink-faint);
+    font-size: 13px;
+    cursor: pointer;
+    text-decoration: underline;
+    padding: 0;
+  }
+
+  .runbtn {
+    margin-top: 20px;
+    width: 100%;
+    background: var(--ink);
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    padding: 13px;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: opacity 0.15s ease;
+  }
+  .runbtn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .runbtn:not(:disabled):hover { opacity: 0.88; }
+
+  .paste-toggle {
+    display: block;
+    text-align: center;
+    margin-top: 14px;
+    font-size: 13px;
+    color: var(--ink-faint);
+    text-decoration: underline;
+    cursor: pointer;
+    background: none;
+    border: none;
+    width: 100%;
+  }
+  textarea {
+    display: none;
+    width: 100%;
+    margin-top: 12px;
+    min-height: 110px;
+    font-family: var(--mono);
+    font-size: 12.5px;
+    padding: 12px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    resize: vertical;
+    background: var(--panel);
+    color: var(--ink);
+  }
+  textarea.show { display: block; }
+
+  .errmsg {
+    display: none;
+    color: var(--flag);
+    font-size: 13px;
+    margin-top: 10px;
+  }
+  .errmsg.show { display: block; }
+
+  .status {
+    display: none;
+    align-items: center;
+    gap: 10px;
+    margin-top: 24px;
+    font-size: 14px;
+    color: var(--ink-soft);
+  }
+  .status.show { display: flex; }
+  .spinner {
+    width: 15px; height: 15px;
+    border: 2px solid var(--line);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .report {
+    display: none;
+    margin-top: 40px;
+    border-top: 1px solid var(--line);
+    padding-top: 32px;
+  }
+  .report.show { display: block; }
+
+  .report h2 {
+    font-size: 13px;
+    font-family: var(--mono);
+    text-transform: none;
+    color: var(--accent);
+    margin: 0 0 12px;
+  }
+  .summary-text {
+    font-size: 16px;
+    line-height: 1.7;
+    color: var(--ink);
+    white-space: pre-wrap;
+  }
+
+  .flags {
+    margin-top: 32px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .flag-row {
+    display: flex;
+    gap: 12px;
+    background: var(--flag-soft);
+    border-radius: 8px;
+    padding: 12px 14px;
+    font-size: 14px;
+    align-items: flex-start;
+  }
+  .flag-dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--flag);
+    margin-top: 7px;
+    flex-shrink: 0;
+  }
+
+  .followup {
+    margin-top: 32px;
+    display: flex;
+    gap: 8px;
+  }
+  .followup input {
+    flex: 1;
+    padding: 10px 12px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    font-size: 14px;
+    font-family: inherit;
+  }
+  .followup button {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 10px 16px;
+    font-size: 14px;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .followup button:hover { border-color: var(--accent); color: var(--accent); }
+
+  .followups-log { margin-top: 20px; display: flex; flex-direction: column; gap: 18px; }
+  .fu-q { font-family: var(--mono); font-size: 12.5px; color: var(--ink-faint); margin-bottom: 6px; }
+  .fu-a { font-size: 15px; line-height: 1.65; }
+
+  footer {
+    margin-top: 56px;
+    font-size: 12px;
+    color: var(--ink-faint);
+    text-align: center;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <p class="kicker">report narrator — prototype</p>
+    <h1>Turn a spreadsheet into a summary someone will actually read</h1>
+    <p class="sub">Upload a CSV. Get a plain-English writeup of what moved, what's worth flagging, and why — the part of reporting that eats your afternoon.</p>
+  </header>
+
+  <div class="dropzone" id="dropzone">
+    <p class="dz-title">Drop a CSV here, or click to choose a file</p>
+    <p class="dz-sub">Works best with a table that has a category column and a numeric metric (sales, revenue, counts...)</p>
+    <input type="file" id="fileInput" accept=".csv" />
+  </div>
+
+  <button class="paste-toggle" id="pasteToggle">or paste raw CSV text instead</button>
+  <textarea id="pasteArea" placeholder="date,region,revenue&#10;2026-01-01,Midwest,12400&#10;2026-01-01,South,9800"></textarea>
+
+  <div class="filebar" id="filebar">
+    <span class="name" id="filename"></span>
+    <button id="clearFile">remove</button>
+  </div>
+
+  <p class="errmsg" id="errmsg">Add a CSV file or paste some CSV text before running the summary.</p>
+
+  <button class="runbtn" id="runBtn">Generate summary</button>
+
+  <div class="status" id="status">
+    <div class="spinner"></div>
+    <span id="statusText">Reading your data…</span>
+  </div>
+
+  <div class="report" id="report">
+    <h2>summary</h2>
+    <div class="summary-text" id="summaryText"></div>
+
+    <div class="flags" id="flags"></div>
+
+    <div class="followup">
+      <input type="text" id="followupInput" placeholder="Ask a follow-up, e.g. why did the Midwest drop?" />
+      <button id="followupBtn">Ask</button>
+    </div>
+    <div class="followups-log" id="followupsLog"></div>
+  </div>
+
+  <footer>Prototype — data is sent to Claude for analysis and isn't stored.</footer>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<script>
+let csvText = null;
+let csvFilename = null;
+let parsedRows = null;
+let lastSummary = null;
+
+const dropzone = document.getElementById('dropzone');
+const fileInput = document.getElementById('fileInput');
+const filebar = document.getElementById('filebar');
+const filename = document.getElementById('filename');
+const clearFile = document.getElementById('clearFile');
+const pasteToggle = document.getElementById('pasteToggle');
+const pasteArea = document.getElementById('pasteArea');
+const errmsg = document.getElementById('errmsg');
+const runBtn = document.getElementById('runBtn');
+const statusEl = document.getElementById('status');
+const statusText = document.getElementById('statusText');
+const reportEl = document.getElementById('report');
+const summaryText = document.getElementById('summaryText');
+const flagsEl = document.getElementById('flags');
+const followupInput = document.getElementById('followupInput');
+const followupBtn = document.getElementById('followupBtn');
+const followupsLog = document.getElementById('followupsLog');
+
+dropzone.addEventListener('click', () => fileInput.click());
+dropzone.addEventListener('dragover', e => { e.preventDefault(); dropzone.classList.add('drag'); });
+dropzone.addEventListener('dragleave', () => dropzone.classList.remove('drag'));
+dropzone.addEventListener('drop', e => {
+  e.preventDefault();
+  dropzone.classList.remove('drag');
+  if (e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]);
+});
+fileInput.addEventListener('change', () => {
+  if (fileInput.files.length) handleFile(fileInput.files[0]);
+});
+
+function handleFile(file) {
+  csvFilename = file.name;
+  const reader = new FileReader();
+  reader.onload = e => {
+    csvText = e.target.result;
+    filename.textContent = csvFilename;
+    filebar.classList.add('show');
+    pasteArea.value = '';
+    pasteArea.classList.remove('show');
+    errmsg.classList.remove('show');
+  };
+  reader.readAsText(file);
+}
+
+clearFile.addEventListener('click', () => {
+  csvText = null;
+  csvFilename = null;
+  fileInput.value = '';
+  filebar.classList.remove('show');
+});
+
+pasteToggle.addEventListener('click', () => {
+  pasteArea.classList.toggle('show');
+});
+pasteArea.addEventListener('input', () => {
+  errmsg.classList.remove('show');
+});
+
+function getActiveCsv() {
+  if (csvText) return csvText;
+  if (pasteArea.value.trim()) return pasteArea.value.trim();
+  return null;
+}
+
+function computeStats(rows) {
+  if (!rows || !rows.length) return null;
+  const cols = Object.keys(rows[0]);
+  const numericCols = cols.filter(c => rows.every(r => r[c] === '' || r[c] === undefined || !isNaN(parseFloat(r[c]))));
+  const catCols = cols.filter(c => !numericCols.includes(c));
+  const stats = { rowCount: rows.length, columns: cols, numericCols, catCols, byCategory: {} };
+
+  if (catCols.length && numericCols.length) {
+    const catCol = catCols[0];
+    const numCol = numericCols[numericCols.length - 1];
+    const groups = {};
+    rows.forEach(r => {
+      const key = r[catCol] || 'unknown';
+      const val = parseFloat(r[numCol]) || 0;
+      groups[key] = (groups[key] || 0) + val;
+    });
+    stats.byCategory = { catCol, numCol, groups };
+  }
+  return stats;
+}
+
+runBtn.addEventListener('click', async () => {
+  const raw = getActiveCsv();
+  if (!raw) {
+    errmsg.classList.add('show');
+    return;
+  }
+  errmsg.classList.remove('show');
+  reportEl.classList.remove('show');
+  followupsLog.innerHTML = '';
+  runBtn.disabled = true;
+  statusEl.classList.add('show');
+  statusText.textContent = 'Reading your data…';
+
+  const parsed = Papa.parse(raw, { header: true, skipEmptyLines: true, dynamicTyping: false });
+  parsedRows = parsed.data;
+
+  if (!parsedRows.length) {
+    statusEl.classList.remove('show');
+    runBtn.disabled = false;
+    errmsg.textContent = "Couldn't read any rows from that CSV — check the format and try again.";
+    errmsg.classList.add('show');
+    return;
+  }
+
+  const stats = computeStats(parsedRows);
+  statusText.textContent = 'Writing the summary…';
+
+  const sampleRows = parsedRows.slice(0, 40);
+  const prompt = `You are a data analyst writing a short report summary for a business stakeholder.
+Here is a CSV dataset (first ${sampleRows.length} of ${parsedRows.length} rows):
+
+${Papa.unparse(sampleRows)}
+
+Basic computed stats: ${JSON.stringify(stats.byCategory ? stats.byCategory.groups : {})}
+
+Write your response as JSON only, no markdown fences, no preamble, in this exact shape:
+{
+  "summary": "a 3-5 sentence plain-English narrative summary of what this data shows, written for a busy stakeholder, no jargon",
+  "flags": ["short flagged insight 1", "short flagged insight 2", "short flagged insight 3"]
+}
+The flags should be the most notable or surprising things in the data (biggest mover, an outlier, a concentration risk, a gap) — not generic observations. Keep each flag under 20 words.`;
+
+  try {
+    const response = await fetch("/api/summarize", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ prompt: prompt, max_tokens: 1000 })
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || 'Request failed');
+    const clean = data.text.replace(/```json|```/g, '').trim();
+    const result = JSON.parse(clean);
+    lastSummary = result;
+
+    summaryText.textContent = result.summary;
+    flagsEl.innerHTML = '';
+    (result.flags || []).forEach(f => {
+      const row = document.createElement('div');
+      row.className = 'flag-row';
+      row.innerHTML = '<div class="flag-dot"></div><div>' + f + '</div>';
+      flagsEl.appendChild(row);
+    });
+
+    reportEl.classList.add('show');
+  } catch (err) {
+    errmsg.textContent = "Something went wrong generating the summary. Try again.";
+    errmsg.classList.add('show');
+  } finally {
+    statusEl.classList.remove('show');
+    runBtn.disabled = false;
+  }
+});
+
+followupBtn.addEventListener('click', async () => {
+  const q = followupInput.value.trim();
+  if (!q || !parsedRows) return;
+  followupBtn.disabled = true;
+  followupBtn.textContent = 'Thinking…';
+
+  const sampleRows = parsedRows.slice(0, 40);
+  const prompt = `Here is a CSV dataset (first ${sampleRows.length} of ${parsedRows.length} rows):
+
+${Papa.unparse(sampleRows)}
+
+Previous summary you wrote: ${lastSummary ? lastSummary.summary : ''}
+
+A stakeholder is now asking a follow-up question about this data: "${q}"
+
+Answer in 2-4 sentences, plain English, based only on what's in the data. If the data doesn't contain enough information to answer confidently, say so plainly rather than guessing.`;
+
+  try {
+    const response = await fetch("/api/summarize", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ prompt: prompt, max_tokens: 500 })
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || 'Request failed');
+    const answer = data.text;
+
+    const entry = document.createElement('div');
+    entry.innerHTML = '<div class="fu-q">' + q + '</div><div class="fu-a">' + answer + '</div>';
+    followupsLog.appendChild(entry);
+    followupInput.value = '';
+  } catch (err) {
+    const entry = document.createElement('div');
+    entry.innerHTML = '<div class="fu-q">' + q + '</div><div class="fu-a">Couldn\'t get an answer — try again.</div>';
+    followupsLog.appendChild(entry);
+  } finally {
+    followupBtn.disabled = false;
+    followupBtn.textContent = 'Ask';
+  }
+});
+
+followupInput.addEventListener('keydown', e => {
+  if (e.key === 'Enter') followupBtn.click();
+});
+</script>
+</body>
+</html>
